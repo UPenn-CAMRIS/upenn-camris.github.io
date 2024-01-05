@@ -15,8 +15,6 @@ function scannerColor(scanner) {
 }
 
 function dropHandler(ev) {
-  console.log("File(s) dropped");
-
   // Prevent default behavior (Prevent file from being opened)
   ev.preventDefault();
 
@@ -26,7 +24,6 @@ function dropHandler(ev) {
       // If dropped items aren't files, reject them
       if (item.kind === "file") {
         const file = item.getAsFile();
-        console.log(`… file[${i}].name = ${file.name}`);
 	df = dfd.readCSV(file
 	)
 	.then((df) => {
@@ -42,16 +39,16 @@ function dropHandler(ev) {
 			});
 
 		let new_df = new dfd.DataFrame(temp, {columns: ["Scanner", "Start", "End", "Title", "Date"]}); 
-		
-		dates = new_df["Date"].sortValues({ascending: false}).unique().values; 
+		dates = sub_df.values.map(function(x) {
+				startDate = new Date(x[1])
+				startDate.setHours(0, 0, 0, 0); 
+				return startDate.getTime();		
+			}).filter((value, index, array) => array.indexOf(value) === index).sort().map(x => new Date(x).toLocaleDateString("en-US"));
+
 
 		let groups = new_df.groupby(["Date"])
 
-		console.log(groups)
-
 		let split_dfs = dates.map(function(x) { return groups.getGroup([x])})
-
-		console.log(split_dfs)
 
 
 		var htmlElements = "";
@@ -108,8 +105,6 @@ function dropHandler(ev) {
 }
 
 function dragOverHandler(ev) {
-  console.log("File(s) in drop zone");
-
   // Prevent default behavior (Prevent file from being opened)
   ev.preventDefault();
 }
