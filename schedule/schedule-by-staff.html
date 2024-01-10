@@ -36,7 +36,7 @@ function dropHandler(ev) {
 		var htmlElements = "";
 		for (var i = 0; i < staff.length; i++) {
 		   htmlElements += '<div style="width: 80%; margin: 50px auto; font-size: 2em; font-family: -apple-system, system-ui, BlinkMacSystemFont, Roboto, Arial, sans-serif; ">' + staff[i] + '</div>';
-		   events = staff_date_merge.getGroup([staff[i]]).values.sort(function(a, b) {(new Date(a[2])).getTime() - (new Date(b[2])).getTime()}).reverse().map(function(x) {
+		   events = staff_date_merge.getGroup([staff[i]]).values.sort(function(a, b) {return (new Date(a[2])).getTime() - (new Date(b[2])).getTime()}).map(function(x) {
 			startDate = new Date(x[2])
 			endDate = new Date(x[3])
 
