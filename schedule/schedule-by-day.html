@@ -38,7 +38,7 @@ function dropHandler(ev) {
 		temp = sub_df.values.map(function(x) {
 				startDate = new Date(x[1])
 				startDate.setHours(0, 0, 0, 0); 
-				return [x[0], x[1], x[2], x[3], startDate.toLocaleDateString("en-US")];		
+				return [x[0], x[1], x[2], x[3], startDate.toLocaleDateString("en-US", { weekday: 'short', month: 'numeric', day: 'numeric', year: 'numeric'})];		
 			});
 
 		let new_df = new dfd.DataFrame(temp, {columns: ["Scanner", "Start", "End", "Title", "Date"]}); 
@@ -46,7 +46,7 @@ function dropHandler(ev) {
 				startDate = new Date(x[1])
 				startDate.setHours(0, 0, 0, 0); 
 				return startDate.getTime();		
-			}).filter((value, index, array) => array.indexOf(value) === index).sort().map(x => new Date(x).toLocaleDateString("en-US"));
+			}).filter((value, index, array) => array.indexOf(value) === index).sort().map(x => new Date(x).toLocaleDateString("en-US", { weekday: 'short', month: 'numeric', day: 'numeric', year: 'numeric'}));
 
 
 		let groups = new_df.groupby(["Date"])
