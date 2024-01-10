@@ -1,0 +1,91 @@
+
+<script type="text/javascript">
+
+
+function dropHandler(ev) {
+  // Prevent default behavior (Prevent file from being opened)
+  ev.preventDefault();
+
+  if (ev.dataTransfer.items) {
+    // Use DataTransferItemList interface to access the file(s)
+    [...ev.dataTransfer.items].forEach((item, i) => {
+      // If dropped items aren't files, reject them
+      if (item.kind === "file") {
+        const file = item.getAsFile();
+	df = dfd.readCSV(file
+	)
+	.then((df) => {
+		let sub_df = df.loc({columns: ["Scheduled start", "Scheduled end", "Title"]});		 
+		let staff = sub_df["Title"].apply( function(s) {
+				return s.replace("Tech: ", "");
+			}).unique().values;
+	
+		temp = sub_df.values.map(function(x) {
+				startDate = new Date(x[0])
+				startDate.setHours(0, 0, 0, 0); 
+				return [new Date(x[0]).getTime(), new Date(x[1]).getTime(), x[2].replace("Tech: ", ""),  startDate.toLocaleString('en-us', {  weekday: 'short' }) + ' ' + startDate.toLocaleDateString("en-US")];		
+			});	
+
+		let new_df = new dfd.DataFrame(temp, {columns: ["Start", "End", "Title", "Date"]}); 
+
+		let staff_date_min = new_df.loc({"columns": ["Start", "Title", "Date"]}).groupby(["Title", "Date"]).min()
+		let staff_date_max = new_df.loc({"columns": ["End", "Title", "Date"]}).groupby(["Title", "Date"]).max()
+
+		let staff_date_merge = dfd.merge({ "left": staff_date_min, "right": staff_date_max, "on": ["Title", "Date"], how: "inner"}).groupby(["Title"])
+
+		var htmlElements = "";
+		for (var i = 0; i < staff.length; i++) {
+		   htmlElements += '<div style="width: 80%; margin: 50px auto; font-size: 2em; font-family: -apple-system, system-ui, BlinkMacSystemFont, Roboto, Arial, sans-serif; ">' + staff[i] + '</div>';
+		   events = staff_date_merge.getGroup([staff[i]]).values.sort(function(a, b) {(new Date(a[2])).getTime() - (new Date(b[2])).getTime()}).reverse().map(function(x) {
+			startDate = new Date(x[2])
+			endDate = new Date(x[3])
+
+			function addZero(i) {
+			  if (i < 10) {i = "0" + i}
+			  return i;
+			}
+
+			return x[1] + ': ' + startDate.getHours() + ':' + addZero(startDate.getMinutes()) + ' - ' +  endDate.getHours() + ':' + addZero(endDate.getMinutes());
+			})
+		    for(var j = 0; j < events.length; j++) {
+		   htmlElements += '<div style="width: 80%; margin: 0px auto;; font-family: -apple-system, system-ui, BlinkMacSystemFont, Roboto, Arial, sans-serif; ">' + events[j] + '</div>';
+		    }
+		}
+		var container = document.getElementById("target");
+		container.innerHTML = htmlElements;
+	})
+        .catch((err) => {
+          console.log(err);
+        });
+      }
+    });
+  } else {
+    // Use DataTransfer interface to access the file(s)
+    [...ev.dataTransfer.files].forEach((file, i) => {
+      console.log(`… file[${i}].name = ${file.name}`);
+    });
+  }
+}
+
+function dragOverHandler(ev) {
+  // Prevent default behavior (Prevent file from being opened)
+  ev.preventDefault();
+}
+</script>
+
+
+<script src="https://cdn.jsdelivr.net/npm/danfojs@1.0.5/lib/bundle.min.js"></script>
+
+<div
+  id="drop_zone"
+  ondrop="dropHandler(event);"
+  ondragover="dragOverHandler(event);"
+  style="break-after: page; page-break-after: always; display: block;">
+  <div style="text-align: center;"><img src="cloud_upload_icon.png" width="25%"></img></div>
+  <div style="text-align: center; font-family: -apple-system, system-ui, BlinkMacSystemFont, Roboto, Arial, sans-serif;"><p>Drag Events.csv file here</p></div>
+</div>
+
+
+<div id="target">
+   <!-- all divs will append here -->
+</div>
