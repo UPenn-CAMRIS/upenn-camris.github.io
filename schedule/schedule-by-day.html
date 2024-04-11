@@ -30,7 +30,12 @@ function dropHandler(ev) {
 	df = dfd.readCSV(file
 	)
 	.then((df) => {
-		let sub_df = df.loc({columns: ["Scanner", "Scheduled start", "Scheduled end", "Title"]});		 
+		let pn_groups = df.groupby(["Protocol name"]) 
+		let df_admin = pn_groups.getGroup(["ADMIN"])
+		let df_admin_tech_flag = df_admin["Title"].values.map(function(x) {
+			return x.startsWith("Tech: ")
+			})
+		let sub_df = df_admin.loc({columns: ["Scanner", "Scheduled start", "Scheduled end", "Title"], rows: df_admin_tech_flag});		 
 		staff = sub_df["Title"].apply( function(s) {
 				return s.replace("Tech: ", "");
 			}).unique();
