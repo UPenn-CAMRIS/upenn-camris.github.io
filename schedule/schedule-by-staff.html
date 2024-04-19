@@ -15,7 +15,12 @@ function dropHandler(ev) {
 	df = dfd.readCSV(file
 	)
 	.then((df) => {
-		let sub_df = df.loc({columns: ["Scheduled start", "Scheduled end", "Title"]});		 
+		let pn_groups = df.groupby(["Protocol name"]) 
+		let df_admin = pn_groups.getGroup(["ADMIN"])
+		let df_admin_tech_flag = df_admin["Title"].values.map(function(x) {
+			return x.startsWith("Tech: ")
+			})
+		let sub_df = df_admin.loc({columns: ["Scheduled start", "Scheduled end", "Title"], rows: df_admin_tech_flag});		 
 		let staff = sub_df["Title"].apply( function(s) {
 				return s.replace("Tech: ", "");
 			}).unique().values;
@@ -35,7 +40,7 @@ function dropHandler(ev) {
 
 		var htmlElements = "";
 		for (var i = 0; i < staff.length; i++) {
-		   htmlElements += '<div style="width: 80%; margin: 50px auto; font-size: 2em; font-family: -apple-system, system-ui, BlinkMacSystemFont, Roboto, Arial, sans-serif; ">' + staff[i] + '</div>';
+		   htmlElements += '<div style="width: 80%; margin: 50px auto; font-size: 2em; font-family: -apple-system, system-ui, BlinkMacSystemFont, Roboto, Arial, sans-serif; break-after: page; page-break-after: always; display: block; ">' + staff[i];
 		   events = staff_date_merge.getGroup([staff[i]]).values.sort(function(a, b) {return (new Date(a[2])).getTime() - (new Date(b[2])).getTime()}).map(function(x) {
 			startDate = new Date(x[2])
 			endDate = new Date(x[3])
@@ -48,8 +53,9 @@ function dropHandler(ev) {
 			return x[1] + ': ' + startDate.getHours() + ':' + addZero(startDate.getMinutes()) + ' - ' +  endDate.getHours() + ':' + addZero(endDate.getMinutes());
 			})
 		    for(var j = 0; j < events.length; j++) {
-		   htmlElements += '<div style="width: 80%; margin: 0px auto;; font-family: -apple-system, system-ui, BlinkMacSystemFont, Roboto, Arial, sans-serif; ">' + events[j] + '</div>';
+		   htmlElements += '<div style="width: 80%; margin: 0px auto; font-size: 0.5em; font-family: -apple-system, system-ui, BlinkMacSystemFont, Roboto, Arial, sans-serif; ">' + events[j] + '</div>';
 		    }
+		    htmlElements+='</div>'
 		}
 		var container = document.getElementById("target");
 		container.innerHTML = htmlElements;
