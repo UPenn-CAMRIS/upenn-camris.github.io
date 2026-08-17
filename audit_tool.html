@@ -464,9 +464,6 @@ function renderDownloads(result) {
   const wrap = document.getElementById("downloads");
   wrap.innerHTML = "";
   const files = [
-    ["dfmerge.csv", result.dfmerge, ["Event ID", "Protocol Number", "Human MRI", "Human MRI Industry", "Human MRI Ex Vivo", "Animal MRI", "Animal MRI Industry", "Stimulus", "Neuroreader"]],
-    ["dfmergewithcams.csv", result.dfmergewithcams, ["Event ID", "Protocol Number", "Human MRI", "Human MRI Industry", "Human MRI Ex Vivo", "Animal MRI", "Animal MRI Industry", "Stimulus", "Neuroreader", "Industry Sponsored"]],
-    ["dfmergewithcamsredcap.csv", result.dfmergewithcamsredcap, ["Event ID", "Protocol Number", "Human MRI", "Human MRI Industry", "Human MRI Ex Vivo", "Animal MRI", "Animal MRI Industry", "Stimulus", "Neuroreader", "Industry Sponsored", "RedCap Neuroreader", "RedCap Stimulus"]],
     ["audit_output.csv", result.dfonlyerrors, result.allCols],
     ["audit_output_unique.csv", result.dfonlyerrorsUnique, result.finalCols],
   ];
