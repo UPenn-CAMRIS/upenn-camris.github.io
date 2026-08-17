@@ -191,19 +191,26 @@ const AuditCore = (function (Papa) {
     });
   }
 
+  // Protocol numbers come in two equivalent forms: a plain 6-digit code ("068200") or the
+  // same 6 digits with a hyphen after the first two ("06-8200"). Both are normalized to the
+  // bare 6-digit form here (same as the existing suffix-stripping behavior) so that a
+  // protocol shows up as one consistent join key no matter which format a given source file
+  // happens to use.
   function extractIRBProtocolNumberWithoutSuffix(x) {
     if (isMissing(x)) return null;
-    const m = /^\d{6}/.exec(x);
-    return m ? m[0] : x;
+    const m = /^(\d{2})-?(\d{4})/.exec(x);
+    return m ? m[1] + m[2] : x;
   }
   function extractIRBProtocolNumber(x) {
     if (isMissing(x)) return null;
-    const m = /8\d{5}/.exec(x);
-    return m ? m[0] : x;
+    const m = /8\d-?\d{4}/.exec(x);
+    return m ? m[0].replace("-", "") : x;
   }
   function isAnimalProtocol(x) {
     if (isMissing(x)) return false;
-    return /^AR\d{6}/.test(x);
+    // Same 6-digit-with-optional-hyphen-after-the-first-two format as IRB protocol numbers,
+    // just prefixed with "AR" (e.g. "AR123456" or "AR12-3456").
+    return /^AR\d{2}-?\d{4}/.test(x);
   }
 
   function buildDfMerge(dogfishRows) {
