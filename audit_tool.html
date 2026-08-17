@@ -1,0 +1,533 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>MRI Billing Audit Tool</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<style>
+  :root {
+    --bg: #f7f7f8;
+    --panel: #ffffff;
+    --border: #d9d9de;
+    --text: #1f1f24;
+    --muted: #6b6b76;
+    --accent: #4a5df9;
+    --accent-dark: #3444d6;
+    --error: #c0392b;
+    --ok: #1f8a4c;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    margin: 0;
+    padding: 32px 24px 80px;
+  }
+  .wrap { max-width: 980px; margin: 0 auto; }
+  h1 { font-size: 22px; margin-bottom: 4px; }
+  p.sub { color: var(--muted); margin-top: 0; margin-bottom: 28px; font-size: 14px; }
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px 24px;
+    margin-bottom: 20px;
+  }
+  .panel h2 { font-size: 15px; margin: 0 0 14px; }
+  .dropzones { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; }
+  .dropzone {
+    border: 2px dashed var(--border);
+    border-radius: 8px;
+    padding: 18px 14px;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color .15s, background .15s;
+    font-size: 13px;
+  }
+  .dropzone:hover, .dropzone.drag { border-color: var(--accent); background: #f0f1ff; }
+  .dropzone .label { font-weight: 600; margin-bottom: 6px; display: block; }
+  .dropzone .filename { color: var(--ok); font-size: 12px; word-break: break-all; margin-top: 6px; }
+  .dropzone .hint { color: var(--muted); font-size: 12px; }
+  .dropzone input { display: none; }
+  button {
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    border-radius: 7px;
+    padding: 10px 20px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  button:hover { background: var(--accent-dark); }
+  button:disabled { background: #b7bbe6; cursor: not-allowed; }
+  .actions { margin-top: 18px; display: flex; align-items: center; gap: 14px; }
+  #status { font-size: 13px; color: var(--muted); }
+  #status.error { color: var(--error); }
+  #status.ok { color: var(--ok); }
+  .downloads { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 6px; }
+  .downloads a {
+    display: inline-block;
+    font-size: 13px;
+    padding: 8px 14px;
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    color: var(--text);
+    text-decoration: none;
+    background: #fafafc;
+  }
+  .downloads a:hover { border-color: var(--accent); color: var(--accent-dark); }
+  table { border-collapse: collapse; width: 100%; font-size: 12.5px; margin-top: 10px; }
+  th, td { border: 1px solid var(--border); padding: 6px 8px; text-align: left; white-space: nowrap; }
+  th { background: #f0f0f3; position: sticky; top: 0; }
+  td.bool-true { color: var(--error); font-weight: 600; }
+  td.bool-false { color: var(--muted); }
+  td.bool-null { color: #b7b7c0; font-style: italic; }
+  .table-scroll { max-height: 480px; overflow: auto; border: 1px solid var(--border); border-radius: 8px; }
+  .summary-line { font-size: 13px; color: var(--muted); margin: 10px 0 0; }
+  details.steps summary { cursor: pointer; font-size: 13px; color: var(--muted); }
+  details.steps { margin-top: 8px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>MRI Billing Audit Tool</h1>
+  <p class="sub">Cross-checks Dogfish scheduling events against CAMS funding data and RedCap approval records to flag billing errors. Runs entirely in your browser &mdash; no files are uploaded anywhere.</p>
+
+  <div class="panel">
+    <h2>1. Load your three CSV files</h2>
+    <div class="dropzones">
+      <label class="dropzone" id="zone-dogfish">
+        <span class="label">Dogfish_Events.csv</span>
+        <span class="hint">Event ID, Protocol Number, Service, ...</span>
+        <div class="filename" id="name-dogfish"></div>
+        <input type="file" accept=".csv" id="file-dogfish">
+      </label>
+      <label class="dropzone" id="zone-cams">
+        <span class="label">CAMS_Data.csv</span>
+        <span class="hint">Protocol Number, Industry Sponsored, ...</span>
+        <div class="filename" id="name-cams"></div>
+        <input type="file" accept=".csv" id="file-cams">
+      </label>
+      <label class="dropzone" id="zone-redcap">
+        <span class="label">Redcap_Export.csv</span>
+        <span class="hint">irb_protocol_number, fees_reviewletter___2/6, ...</span>
+        <div class="filename" id="name-redcap"></div>
+        <input type="file" accept=".csv" id="file-redcap">
+      </label>
+    </div>
+    <div class="actions">
+      <button id="run-btn" disabled>Run audit</button>
+      <span id="status"></span>
+    </div>
+  </div>
+
+  <div class="panel" id="results-panel" style="display:none;">
+    <h2>2. Results</h2>
+    <p class="summary-line" id="summary-line"></p>
+    <div class="downloads" id="downloads"></div>
+    <div class="table-scroll">
+      <table id="results-table"></table>
+    </div>
+    <details class="steps">
+      <summary>Intermediate steps &amp; column reference</summary>
+      <p class="summary-line">
+        <b>dfmerge</b>: Dogfish events grouped by Event ID (no-show/cancellation rows removed; each service type OR&#8209;reduced into a boolean column).<br>
+        <b>dfmergewithcams</b>: left-joined to CAMS_Data.csv on Protocol Number to pull in <i>Industry Sponsored</i>.<br>
+        <b>dfmergewithcamsredcap</b>: left-joined to the RedCap export (rows with <i>camris_review_letter_complete == 2</i>, grouped by IRB number, last value kept) to pull in <i>RedCap Neuroreader</i> / <i>RedCap Stimulus</i>.<br>
+        <b>audit_output</b>: every row with at least one TRUE or unknown (blank) error flag.<br>
+        <b>audit_output_unique</b>: audit_output reduced to Protocol Number + the 8 error columns, de&#8209;duplicated &mdash; this matches the original script's final CSV.
+      </p>
+    </details>
+  </div>
+</div>
+
+<script>
+// ============================================================
+// Core audit logic - ported line-for-line from Audit.jl
+// Uses PapaParse (loaded above) for CSV parsing/writing.
+// ============================================================
+const AuditCore = (function (Papa) {
+  const MISSING_TOKENS = new Set(["", "NULL", "NA", "N/A"]);
+  function isMissing(v) { return v === undefined || v === null || MISSING_TOKENS.has(v); }
+
+  function kNot(a) { return a === null ? null : !a; }
+  function kAnd(a, b) {
+    if (a === false || b === false) return false;
+    if (a === null || b === null) return null;
+    return a && b;
+  }
+  function kOr(a, b) {
+    if (a === true || b === true) return true;
+    if (a === null || b === null) return null;
+    return a || b;
+  }
+  function pmAnd(a, b) { return (a === null || b === null) ? null : (a && b); }
+
+  function toBool01(v) {
+    if (isMissing(v)) return null;
+    if (v === true || v === false) return v;
+    const s = String(v).trim();
+    if (s === "1") return true;
+    if (s === "0") return false;
+    return !!Number(s);
+  }
+
+  function parseCSV(text) {
+    return Papa.parse(text, { header: true, skipEmptyLines: true, dynamicTyping: false }).data;
+  }
+
+  function toCSV(rows, columns) {
+    return Papa.unparse({
+      fields: columns,
+      data: rows.map(r => columns.map(c => {
+        const v = r[c];
+        if (v === null || v === undefined) return "";
+        if (v === true) return "TRUE";
+        if (v === false) return "FALSE";
+        return v;
+      })),
+    });
+  }
+
+  function extractIRBProtocolNumberWithoutSuffix(x) {
+    if (isMissing(x)) return null;
+    const m = /^\d{6}/.exec(x);
+    return m ? m[0] : x;
+  }
+  function extractIRBProtocolNumber(x) {
+    if (isMissing(x)) return null;
+    const m = /8\d{5}/.exec(x);
+    return m ? m[0] : x;
+  }
+  function isAnimalProtocol(x) {
+    if (isMissing(x)) return false;
+    return /^AR\d{6}/.test(x);
+  }
+
+  function buildDfMerge(dogfishRows) {
+    const SERVICE_MAP = {
+      "Human MRI": "Human MRI",
+      "Human MRI (Industry/CHOP)": "Human MRI Industry",
+      "Human MRI (Ex-vivo scanning)": "Human MRI Ex Vivo",
+      "Animal MRI": "Animal MRI",
+      "Animal MRI (Industry/CHOP)": "Animal MRI Industry",
+      "Stimulus/Response Equipment Usage Fee": "Stimulus",
+      "Research Report Reader Fee": "Neuroreader",
+    };
+    const BOOL_COLS = ["Human MRI", "Human MRI Industry", "Human MRI Ex Vivo", "Animal MRI", "Animal MRI Industry", "Stimulus", "Neuroreader"];
+    const filtered = dogfishRows.filter(r => r["Service"] !== "No Show/Cancellation Fee");
+
+    const groupOrder = [];
+    const groups = new Map();
+    for (const row of filtered) {
+      const eventId = row["Event ID"];
+      const protocolNumber = extractIRBProtocolNumberWithoutSuffix(row["Protocol Number"]);
+      const flags = {};
+      for (const col of BOOL_COLS) flags[col] = false;
+      const mapped = SERVICE_MAP[row["Service"]];
+      if (mapped) flags[mapped] = true;
+
+      if (!groups.has(eventId)) {
+        groupOrder.push(eventId);
+        groups.set(eventId, { "Event ID": eventId, "Protocol Number": protocolNumber, ...flags });
+      } else {
+        const g = groups.get(eventId);
+        for (const col of BOOL_COLS) g[col] = g[col] || flags[col];
+      }
+    }
+    return groupOrder.map(id => groups.get(id));
+  }
+
+  function joinWithCams(dfmerge, camsRows) {
+    const cams = camsRows.map(r => ({
+      "Protocol Number": extractIRBProtocolNumberWithoutSuffix(r["Protocol Number"]),
+      "Industry Sponsored": isMissing(r["Industry Sponsored"]) ? null : r["Industry Sponsored"],
+    }));
+    const byProtocol = new Map();
+    for (const r of cams) {
+      if (r["Protocol Number"] === null) continue;
+      if (!byProtocol.has(r["Protocol Number"])) byProtocol.set(r["Protocol Number"], []);
+      byProtocol.get(r["Protocol Number"]).push(r);
+    }
+    const out = [];
+    for (const row of dfmerge) {
+      const pn = row["Protocol Number"];
+      const matches = pn !== null && byProtocol.has(pn) ? byProtocol.get(pn) : null;
+      if (!matches || matches.length === 0) {
+        out.push({ ...row, "Industry Sponsored": null });
+      } else {
+        for (const m of matches) out.push({ ...row, "Industry Sponsored": m["Industry Sponsored"] });
+      }
+    }
+    return out;
+  }
+
+  function buildRedcapActive(redcapRows) {
+    const withFixed = redcapRows.map(r => ({
+      fixed_irb: extractIRBProtocolNumber(r["irb_protocol_number"]),
+      complete: r["camris_review_letter_complete"],
+      neuroreader: r["fees_reviewletter___2"],
+      stimulus: r["fees_reviewletter___6"],
+    })).filter(r => String(r.complete) === "2");
+
+    const groupOrder = [];
+    const groups = new Map();
+    for (const r of withFixed) {
+      const key = r.fixed_irb;
+      if (!groups.has(key)) groupOrder.push(key);
+      groups.set(key, r);
+    }
+    return groupOrder.map(key => {
+      const r = groups.get(key);
+      return {
+        "Protocol Number": r.fixed_irb,
+        "RedCap Neuroreader": toBool01(r.neuroreader),
+        "RedCap Stimulus": toBool01(r.stimulus),
+      };
+    });
+  }
+
+  function joinWithRedcap(dfmergewithcams, redcapActive) {
+    const byProtocol = new Map();
+    for (const r of redcapActive) {
+      if (r["Protocol Number"] === null) continue;
+      if (!byProtocol.has(r["Protocol Number"])) byProtocol.set(r["Protocol Number"], []);
+      byProtocol.get(r["Protocol Number"]).push(r);
+    }
+    const out = [];
+    for (const row of dfmergewithcams) {
+      const pn = row["Protocol Number"];
+      const matches = pn !== null && byProtocol.has(pn) ? byProtocol.get(pn) : null;
+      if (!matches || matches.length === 0) {
+        out.push({ ...row, "RedCap Neuroreader": null, "RedCap Stimulus": null });
+      } else {
+        for (const m of matches) out.push({ ...row, "RedCap Neuroreader": m["RedCap Neuroreader"], "RedCap Stimulus": m["RedCap Stimulus"] });
+      }
+    }
+    return out;
+  }
+
+  const ERROR_COLS = [
+    "Industry Billed As Government Error",
+    "Government Billed As Industry Error",
+    "Animal Billed As Human Error",
+    "Human Billed As Animal Error",
+    "Stimulus Billing Missed Error",
+    "Stimulus Billing Extra Error",
+    "Neuroreader Billing Missed Error",
+    "Neuroreader Billing Extra Error",
+  ];
+
+  function buildErrors(rows) {
+    return rows.map(row => {
+      const x = row["Human MRI Industry"];
+      const y = row["Animal MRI Industry"];
+      const z = row["Industry Sponsored"];
+      const zIsYes = z === null ? null : (z === "Yes");
+      const zNotYes = z === null ? null : (z !== "Yes");
+
+      const industryBilledAsGovernment = kAnd(kNot(kOr(x, y)), zIsYes);
+      const governmentBilledAsIndustry = kAnd(kOr(x, y), zNotYes);
+      const animalBilledAsHuman = kAnd(kOr(row["Human MRI"], row["Human MRI Industry"]), isAnimalProtocol(row["Protocol Number"]));
+      const humanBilledAsAnimal = kAnd(kOr(row["Animal MRI"], row["Animal MRI Industry"]), !isAnimalProtocol(row["Protocol Number"]));
+
+      const stimulus = toBool01(row["Stimulus"]);
+      const redcapStimulus = row["RedCap Stimulus"];
+      const stimulusMissed = pmAnd(kNot(stimulus), redcapStimulus);
+      const stimulusExtra = pmAnd(stimulus, kNot(redcapStimulus));
+
+      const neuroreader = toBool01(row["Neuroreader"]);
+      const redcapNeuroreader = row["RedCap Neuroreader"];
+      const neuroreaderMissed = pmAnd(kNot(neuroreader), redcapNeuroreader);
+      const neuroreaderExtra = pmAnd(neuroreader, kNot(redcapNeuroreader));
+
+      return {
+        "Event ID": row["Event ID"],
+        "Protocol Number": row["Protocol Number"],
+        "Industry Billed As Government Error": industryBilledAsGovernment,
+        "Government Billed As Industry Error": governmentBilledAsIndustry,
+        "Animal Billed As Human Error": animalBilledAsHuman,
+        "Human Billed As Animal Error": humanBilledAsAnimal,
+        "Stimulus Billing Missed Error": stimulusMissed,
+        "Stimulus Billing Extra Error": stimulusExtra,
+        "Neuroreader Billing Missed Error": neuroreaderMissed,
+        "Neuroreader Billing Extra Error": neuroreaderExtra,
+      };
+    });
+  }
+
+  function filterOnlyErrors(dferrors) {
+    return dferrors.filter(row => {
+      let acc = false;
+      for (const c of ERROR_COLS) {
+        const v = row[c];
+        acc = acc || (v === null ? true : v);
+      }
+      return acc;
+    });
+  }
+
+  function uniqueRows(rows, columns) {
+    const seen = new Set();
+    const out = [];
+    for (const r of rows) {
+      const key = JSON.stringify(columns.map(c => r[c]));
+      if (!seen.has(key)) { seen.add(key); out.push(r); }
+    }
+    return out;
+  }
+
+  function runAudit({ dogfishText, camsText, redcapText }) {
+    const dogfish = parseCSV(dogfishText);
+    const cams = parseCSV(camsText);
+    const redcap = parseCSV(redcapText);
+
+    const dfmerge = buildDfMerge(dogfish);
+    const dfmergewithcams = joinWithCams(dfmerge, cams);
+    const redcapActive = buildRedcapActive(redcap);
+    const dfmergewithcamsredcap = joinWithRedcap(dfmergewithcams, redcapActive);
+
+    const dferrors = buildErrors(dfmergewithcamsredcap);
+    const dfonlyerrors = filterOnlyErrors(dferrors);
+
+    const finalCols = ["Protocol Number", ...ERROR_COLS];
+    const selected = dfonlyerrors.map(r => {
+      const o = {};
+      for (const c of finalCols) o[c] = r[c];
+      return o;
+    });
+    const dfonlyerrorsUnique = uniqueRows(selected, finalCols);
+
+    return {
+      dfmerge, dfmergewithcams, dfmergewithcamsredcap,
+      dfonlyerrors, dfonlyerrorsUnique, finalCols,
+      allCols: ["Event ID", "Protocol Number", ...ERROR_COLS],
+    };
+  }
+
+  return { runAudit, toCSV, ERROR_COLS };
+})(Papa);
+
+// ============================================================
+// UI wiring
+// ============================================================
+const state = { dogfish: null, cams: null, redcap: null };
+
+function wireDropzone(zoneId, inputId, nameId, key) {
+  const zone = document.getElementById(zoneId);
+  const input = document.getElementById(inputId);
+  const nameEl = document.getElementById(nameId);
+
+  function handleFile(file) {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      state[key] = reader.result;
+      nameEl.textContent = file.name;
+      updateRunButton();
+    };
+    reader.readAsText(file);
+  }
+
+  input.addEventListener("change", e => handleFile(e.target.files[0]));
+  zone.addEventListener("dragover", e => { e.preventDefault(); zone.classList.add("drag"); });
+  zone.addEventListener("dragleave", () => zone.classList.remove("drag"));
+  zone.addEventListener("drop", e => {
+    e.preventDefault();
+    zone.classList.remove("drag");
+    handleFile(e.dataTransfer.files[0]);
+  });
+}
+
+wireDropzone("zone-dogfish", "file-dogfish", "name-dogfish", "dogfish");
+wireDropzone("zone-cams", "file-cams", "name-cams", "cams");
+wireDropzone("zone-redcap", "file-redcap", "name-redcap", "redcap");
+
+function updateRunButton() {
+  document.getElementById("run-btn").disabled = !(state.dogfish && state.cams && state.redcap);
+}
+
+function setStatus(msg, cls) {
+  const el = document.getElementById("status");
+  el.textContent = msg;
+  el.className = cls || "";
+}
+
+function downloadUrl(text) {
+  const blob = new Blob([text], { type: "text/csv" });
+  return URL.createObjectURL(blob);
+}
+
+function renderDownloads(result) {
+  const wrap = document.getElementById("downloads");
+  wrap.innerHTML = "";
+  const files = [
+    ["dfmerge.csv", result.dfmerge, ["Event ID", "Protocol Number", "Human MRI", "Human MRI Industry", "Human MRI Ex Vivo", "Animal MRI", "Animal MRI Industry", "Stimulus", "Neuroreader"]],
+    ["dfmergewithcams.csv", result.dfmergewithcams, ["Event ID", "Protocol Number", "Human MRI", "Human MRI Industry", "Human MRI Ex Vivo", "Animal MRI", "Animal MRI Industry", "Stimulus", "Neuroreader", "Industry Sponsored"]],
+    ["dfmergewithcamsredcap.csv", result.dfmergewithcamsredcap, ["Event ID", "Protocol Number", "Human MRI", "Human MRI Industry", "Human MRI Ex Vivo", "Animal MRI", "Animal MRI Industry", "Stimulus", "Neuroreader", "Industry Sponsored", "RedCap Neuroreader", "RedCap Stimulus"]],
+    ["audit_output.csv", result.dfonlyerrors, result.allCols],
+    ["audit_output_unique.csv", result.dfonlyerrorsUnique, result.finalCols],
+  ];
+  for (const [filename, rows, cols] of files) {
+    const a = document.createElement("a");
+    a.href = downloadUrl(AuditCore.toCSV(rows, cols));
+    a.download = filename;
+    a.textContent = "⬇ " + filename;
+    wrap.appendChild(a);
+  }
+}
+
+function renderTable(rows, cols) {
+  const table = document.getElementById("results-table");
+  table.innerHTML = "";
+  const thead = document.createElement("thead");
+  const trh = document.createElement("tr");
+  for (const c of cols) {
+    const th = document.createElement("th");
+    th.textContent = c;
+    trh.appendChild(th);
+  }
+  thead.appendChild(trh);
+  table.appendChild(thead);
+
+  const tbody = document.createElement("tbody");
+  for (const row of rows) {
+    const tr = document.createElement("tr");
+    for (const c of cols) {
+      const td = document.createElement("td");
+      const v = row[c];
+      if (v === true) { td.textContent = "TRUE"; td.className = "bool-true"; }
+      else if (v === false) { td.textContent = "FALSE"; td.className = "bool-false"; }
+      else if (v === null || v === undefined) { td.textContent = "—"; td.className = "bool-null"; }
+      else { td.textContent = v; }
+      tr.appendChild(td);
+    }
+    tbody.appendChild(tr);
+  }
+  table.appendChild(tbody);
+}
+
+document.getElementById("run-btn").addEventListener("click", () => {
+  setStatus("Running…");
+  try {
+    const result = AuditCore.runAudit({
+      dogfishText: state.dogfish,
+      camsText: state.cams,
+      redcapText: state.redcap,
+    });
+    document.getElementById("results-panel").style.display = "block";
+    document.getElementById("summary-line").textContent =
+      `${result.dfonlyerrorsUnique.length} unique flagged protocol row(s) out of ${result.dfmerge.length} events processed.`;
+    renderDownloads(result);
+    renderTable(result.dfonlyerrorsUnique, result.finalCols);
+    setStatus("Done.", "ok");
+  } catch (err) {
+    console.error(err);
+    setStatus("Error: " + err.message, "error");
+  }
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,450 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Contrast Billing Export Tool</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+  :root {
+    --bg: #f7f7f8;
+    --panel: #ffffff;
+    --border: #d9d9de;
+    --text: #1f1f24;
+    --muted: #6b6b76;
+    --accent: #4a5df9;
+    --accent-dark: #3444d6;
+    --error: #c0392b;
+    --ok: #1f8a4c;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    margin: 0;
+    padding: 32px 24px 80px;
+  }
+  .wrap { max-width: 980px; margin: 0 auto; }
+  h1 { font-size: 22px; margin-bottom: 4px; }
+  p.sub { color: var(--muted); margin-top: 0; margin-bottom: 28px; font-size: 14px; }
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px 24px;
+    margin-bottom: 20px;
+  }
+  .panel h2 { font-size: 15px; margin: 0 0 14px; }
+  .dropzones { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; }
+  .dropzone {
+    border: 2px dashed var(--border);
+    border-radius: 8px;
+    padding: 18px 14px;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color .15s, background .15s;
+    font-size: 13px;
+  }
+  .dropzone:hover, .dropzone.drag { border-color: var(--accent); background: #f0f1ff; }
+  .dropzone .label { font-weight: 600; margin-bottom: 6px; display: block; }
+  .dropzone .filename { color: var(--ok); font-size: 12px; word-break: break-all; margin-top: 6px; }
+  .dropzone .hint { color: var(--muted); font-size: 12px; }
+  .dropzone input {
+    position: absolute;
+    width: 1px; height: 1px;
+    padding: 0; margin: -1px;
+    overflow: hidden;
+    clip: rect(0,0,0,0);
+    white-space: nowrap;
+    border: 0;
+  }
+  button {
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    border-radius: 7px;
+    padding: 10px 20px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  button:hover { background: var(--accent-dark); }
+  button:disabled { background: #b7bbe6; cursor: not-allowed; }
+  .actions { margin-top: 18px; display: flex; align-items: center; gap: 14px; }
+  #status { font-size: 13px; color: var(--muted); }
+  #status.error { color: var(--error); }
+  #status.ok { color: var(--ok); }
+  .downloads { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 6px; }
+  .downloads a {
+    display: inline-block;
+    font-size: 13px;
+    padding: 8px 14px;
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    color: var(--text);
+    text-decoration: none;
+    background: #fafafc;
+  }
+  .downloads a:hover { border-color: var(--accent); color: var(--accent-dark); }
+  table { border-collapse: collapse; width: 100%; font-size: 12.5px; margin-top: 10px; }
+  th, td { border: 1px solid var(--border); padding: 6px 8px; text-align: left; white-space: nowrap; }
+  th { background: #f0f0f3; position: sticky; top: 0; }
+  td.warn { color: var(--error); font-weight: 600; }
+  .table-scroll { max-height: 480px; overflow: auto; border: 1px solid var(--border); border-radius: 8px; }
+  .summary-line { font-size: 13px; color: var(--muted); margin: 10px 0 0; }
+  .warnbox {
+    background: #fff6f5;
+    border: 1px solid #f2c6c0;
+    border-radius: 8px;
+    padding: 10px 14px;
+    font-size: 12.5px;
+    color: var(--error);
+    margin-top: 12px;
+  }
+  details.steps summary { cursor: pointer; font-size: 13px; color: var(--muted); }
+  details.steps { margin-top: 8px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Contrast Billing Export Tool</h1>
+  <p class="sub">Turns the Epic contrast-exam report into a billing feed: keeps only exams with a contrast agent given by a recognized CAMRIS technologist, and reshapes it into the CAMRIS-003 charge format. Runs entirely in your browser &mdash; no files are uploaded anywhere.</p>
+
+  <div class="panel">
+    <h2>1. Load your files</h2>
+    <div class="dropzones">
+      <label class="dropzone" id="zone-contrast">
+        <span class="label">Contrast_Report.csv or .xlsx</span>
+        <span class="hint">Begin Exam Time, Technologist, Procedure-Related Meds, ...</span>
+        <div class="filename" id="name-contrast"></div>
+        <input type="file" accept=".csv,.xlsx,.xls" id="file-contrast">
+      </label>
+      <label class="dropzone" id="zone-techs">
+        <span class="label">CAMRIS_Technologists.csv</span>
+        <span class="hint">Technologist, PennKey</span>
+        <div class="filename" id="name-techs"></div>
+        <input type="file" accept=".csv" id="file-techs">
+      </label>
+    </div>
+    <div class="actions">
+      <button id="run-btn" disabled>Run export</button>
+      <span id="status"></span>
+    </div>
+  </div>
+
+  <div class="panel" id="results-panel" style="display:none;">
+    <h2>2. Results</h2>
+    <p class="summary-line" id="summary-line"></p>
+    <div class="downloads" id="downloads"></div>
+    <div id="warnings"></div>
+    <div class="table-scroll">
+      <table id="results-table"></table>
+    </div>
+    <details class="steps">
+      <summary>How this is built</summary>
+      <p class="summary-line">
+        1. Start from <b>Contrast_Report.csv</b> and keep only rows where <i>Procedure-Related Meds</i> is not blank (contrast was actually given).<br>
+        2. Keep only rows whose <i>Technologist</i> matches a name in <b>CAMRIS_Technologists.csv</b> (an inner join on technologist name &mdash; exams performed by technologists not on that list are dropped, and technologists with no matching exams don't produce a row).<br>
+        3. <i>Begin Exam Time</i> (format <code>m/d/yy H:MM</code>) is split into a <code>date</code> (yyyy-mm-dd) and <code>event_time</code> (HH:MM, 24-hour) column.<br>
+        4. Columns are renamed/added: <i>Linked Study IRB Number</i>&rarr;project, <i>PennKey</i>&rarr;userid, <i>Accession #</i>&rarr;specimen, <i>Provider/Resource</i>&rarr;desc2, plus fixed columns lab=7, sublab=0, code=CAMRIS-003, desc1="Contrast Injection", quantity=1, bill=Y.
+      </p>
+    </details>
+  </div>
+</div>
+
+<script>
+// ============================================================
+// Core logic - ported line-for-line from Contrast.jl
+// ============================================================
+const ContrastCore = (function (Papa) {
+  function isMissing(v) { return v === undefined || v === null || v === ""; }
+
+  function parseCSVText(text) {
+    return Papa.parse(text, { header: true, skipEmptyLines: true, dynamicTyping: false }).data;
+  }
+
+  // Parses an .xlsx/.xls ArrayBuffer into an array of row objects using the first sheet.
+  // Deliberately does NOT use cellDates - date/time cells come back as their raw numeric
+  // Excel serial, decoded ourselves in parseBeginExamTime (see comment there for why).
+  function parseXLSXBuffer(arrayBuffer) {
+    const wb = XLSX.read(arrayBuffer, { type: "array" });
+    const sheetName = wb.SheetNames[0];
+    if (!sheetName) return [];
+    const sheet = wb.Sheets[sheetName];
+    return XLSX.utils.sheet_to_json(sheet, { defval: "", raw: true });
+  }
+
+  function toCSV(rows, columns) {
+    return Papa.unparse({
+      fields: columns,
+      data: rows.map(r => columns.map(c => {
+        const v = r[c];
+        return (v === null || v === undefined) ? "" : v;
+      })),
+    });
+  }
+
+  // Decodes a raw Excel serial date number (days since 1899-12-30) into Y/M/D/H/M, without
+  // going through SheetJS's cellDates/JS-Date machinery. Two things make that necessary:
+  //  1) SheetJS builds cellDates Date objects using the LOCAL-time constructor, so reading
+  //     them back depends on the browser's own timezone unless you're careful - easy to get
+  //     silently wrong (verified against a real export where it turned 9:05 AM into 1:05 PM).
+  //  2) Real Epic exports can carry seconds of precision in the serial number even though the
+  //     cell is *displayed* as "H:MM" (e.g. an actual value of 10:24:53 shown as "10:24") -
+  //     that's real data, not float noise, and this whole pipeline is minute-precision, so it
+  //     needs to be truncated rather than rounded (rounding 10:24:53 up to 10:25 is wrong).
+  // Doing the arithmetic directly on the serial sidesteps both problems in one deterministic,
+  // timezone-independent calculation. A half-second nudge before truncating absorbs the
+  // sub-second floating-point noise Excel's own serial encoding has at exact minute boundaries.
+  function excelSerialToDateParts(serial) {
+    const totalDays = Math.floor(serial);
+    const fractionalDay = serial - totalDays;
+    let secondsOfDay = Math.floor(fractionalDay * 86400 + 0.5);
+    if (secondsOfDay >= 86400) secondsOfDay = 86399;
+    const hour = Math.floor(secondsOfDay / 3600);
+    const minute = Math.floor((secondsOfDay % 3600) / 60);
+    // Excel serial 25569 == 1970-01-01 (Unix epoch); every serial day is 86400 real seconds.
+    const utcMidnight = new Date((totalDays - 25569) * 86400000);
+    return {
+      year: utcMidnight.getUTCFullYear(),
+      month: utcMidnight.getUTCMonth() + 1,
+      day: utcMidnight.getUTCDate(),
+      hour,
+      minute,
+    };
+  }
+
+  // "Begin Exam Time" is normally text formatted m/d/yy H:MM (or m/d/yyyy H:MM); 2-digit
+  // years < 100 get +2000, matching the Julia script. When the source is an .xlsx file with a
+  // genuine Excel date/time cell, we read raw (not cellDates) so it comes through as the plain
+  // numeric serial instead - see excelSerialToDateParts above for why that's handled separately.
+  function parseBeginExamTime(x) {
+    if (isMissing(x)) return null;
+
+    if (typeof x === "number") {
+      if (!Number.isFinite(x)) return null;
+      return excelSerialToDateParts(x);
+    }
+
+    const s = String(x).trim();
+    const m = /^(\d{1,2})\/(\d{1,2})\/(\d{2,4})[ T](\d{1,2}):(\d{2})/.exec(s);
+    if (!m) return null;
+    const month = parseInt(m[1], 10);
+    const day = parseInt(m[2], 10);
+    let year = parseInt(m[3], 10);
+    const hour = parseInt(m[4], 10);
+    const minute = parseInt(m[5], 10);
+    if ([month, day, year, hour, minute].some(n => Number.isNaN(n))) return null;
+    if (year < 2000) year += 2000; // matches Julia: if year < 2000, add 2000
+    return { year, month, day, hour, minute };
+  }
+
+  function pad2(n) { return String(n).padStart(2, "0"); }
+  function fmtDate(dt) { return dt ? `${dt.year}-${pad2(dt.month)}-${pad2(dt.day)}` : null; }
+  function fmtTime(dt) { return dt ? `${pad2(dt.hour)}:${pad2(dt.minute)}` : null; }
+
+  const OUTPUT_COLS = ["date", "event_time", "project", "userid", "specimen", "desc2", "lab", "sublab", "code", "desc1", "quantity", "bill"];
+
+  function run({ contrastRows, techRows }) {
+    const requiredContrastCols = ["Begin Exam Time", "Linked Study IRB Number", "Provider/Resource", "Procedure-Related Meds", "Technologist", "Accession #"];
+    const requiredTechCols = ["Technologist", "PennKey"];
+    const warnings = [];
+
+    if (contrastRows.length === 0) warnings.push("Contrast_Report.csv has no data rows.");
+    if (techRows.length === 0) warnings.push("CAMRIS_Technologists.csv has no data rows.");
+    if (contrastRows.length) {
+      const cols = Object.keys(contrastRows[0]);
+      for (const c of requiredContrastCols) if (!cols.includes(c)) warnings.push(`Contrast_Report.csv is missing expected column "${c}".`);
+    }
+    if (techRows.length) {
+      const cols = Object.keys(techRows[0]);
+      for (const c of requiredTechCols) if (!cols.includes(c)) warnings.push(`CAMRIS_Technologists.csv is missing expected column "${c}".`);
+    }
+
+    // technologist whitelist: name -> PennKey. Warn on duplicate names (ambiguous join key).
+    const techMap = new Map();
+    const dupTechs = new Set();
+    for (const t of techRows) {
+      const name = t["Technologist"];
+      if (isMissing(name)) continue;
+      if (techMap.has(name)) dupTechs.add(name);
+      techMap.set(name, t["PennKey"]);
+    }
+    if (dupTechs.size) warnings.push(`Duplicate technologist name(s) in CAMRIS_Technologists.csv (last PennKey wins): ${[...dupTechs].join(", ")}`);
+
+    const withMeds = contrastRows.filter(r => !isMissing(r["Procedure-Related Meds"]));
+
+    const unknownTechs = new Set();
+    const badDates = [];
+    const joined = [];
+    for (const r of withMeds) {
+      const tech = r["Technologist"];
+      if (!techMap.has(tech)) { unknownTechs.add(tech); continue; }
+      const dt = parseBeginExamTime(r["Begin Exam Time"]);
+      if (!dt && !isMissing(r["Begin Exam Time"])) badDates.push(r["Begin Exam Time"]);
+      joined.push({
+        date: fmtDate(dt),
+        event_time: fmtTime(dt),
+        project: isMissing(r["Linked Study IRB Number"]) ? "" : r["Linked Study IRB Number"],
+        userid: techMap.get(tech),
+        specimen: r["Accession #"],
+        desc2: r["Provider/Resource"],
+        lab: 7,
+        sublab: 0,
+        code: "CAMRIS-003",
+        desc1: "Contrast Injection",
+        quantity: 1,
+        bill: "Y",
+      });
+    }
+
+    if (unknownTechs.size) warnings.push(`Exam(s) with contrast were performed by technologist(s) not in the CAMRIS list, so they were excluded: ${[...unknownTechs].join(", ")}`);
+    if (badDates.length) warnings.push(`Could not parse "Begin Exam Time" for ${badDates.length} row(s); expected format m/d/yy H:MM. Example: "${badDates[0]}"`);
+
+    return { rows: joined, columns: OUTPUT_COLS, warnings, totalContrastRows: contrastRows.length, withMedsCount: withMeds.length };
+  }
+
+  return { run, toCSV, parseCSVText, parseXLSXBuffer, OUTPUT_COLS };
+})(Papa);
+
+// ============================================================
+// UI wiring
+// ============================================================
+const state = { contrast: null, techs: null };
+
+function isExcelFile(file) {
+  return /\.xlsx?$/i.test(file.name);
+}
+
+function wireDropzone(zoneId, inputId, nameId, key, opts) {
+  opts = opts || {};
+  const zone = document.getElementById(zoneId);
+  const input = document.getElementById(inputId);
+  const nameEl = document.getElementById(nameId);
+
+  function handleFile(file) {
+    if (!file) return;
+    nameEl.textContent = "Reading " + file.name + "…";
+
+    if (opts.allowExcel && isExcelFile(file)) {
+      const reader = new FileReader();
+      reader.onload = () => {
+        try {
+          state[key] = ContrastCore.parseXLSXBuffer(reader.result);
+          nameEl.textContent = file.name;
+        } catch (err) {
+          nameEl.textContent = "";
+          setStatus("Couldn't read " + file.name + ": " + err.message, "error");
+        }
+        updateRunButton();
+      };
+      reader.onerror = () => { setStatus("Couldn't read " + file.name, "error"); nameEl.textContent = ""; };
+      reader.readAsArrayBuffer(file);
+    } else {
+      const reader = new FileReader();
+      reader.onload = () => {
+        state[key] = ContrastCore.parseCSVText(reader.result);
+        nameEl.textContent = file.name;
+        updateRunButton();
+      };
+      reader.onerror = () => { setStatus("Couldn't read " + file.name, "error"); nameEl.textContent = ""; };
+      reader.readAsText(file);
+    }
+  }
+
+  input.addEventListener("change", e => handleFile(e.target.files[0]));
+  zone.addEventListener("dragover", e => { e.preventDefault(); zone.classList.add("drag"); });
+  zone.addEventListener("dragleave", () => zone.classList.remove("drag"));
+  zone.addEventListener("drop", e => {
+    e.preventDefault();
+    zone.classList.remove("drag");
+    handleFile(e.dataTransfer.files[0]);
+  });
+}
+
+wireDropzone("zone-contrast", "file-contrast", "name-contrast", "contrast", { allowExcel: true });
+wireDropzone("zone-techs", "file-techs", "name-techs", "techs");
+
+function updateRunButton() {
+  document.getElementById("run-btn").disabled = !(state.contrast && state.techs);
+}
+
+function setStatus(msg, cls) {
+  const el = document.getElementById("status");
+  el.textContent = msg;
+  el.className = cls || "";
+}
+
+function downloadUrl(text) {
+  const blob = new Blob([text], { type: "text/csv" });
+  return URL.createObjectURL(blob);
+}
+
+function renderDownloads(result) {
+  const wrap = document.getElementById("downloads");
+  wrap.innerHTML = "";
+  const a = document.createElement("a");
+  a.href = downloadUrl(ContrastCore.toCSV(result.rows, result.columns));
+  a.download = "contrast_output.csv";
+  a.textContent = "⬇ contrast_output.csv";
+  wrap.appendChild(a);
+}
+
+function renderWarnings(warnings) {
+  const wrap = document.getElementById("warnings");
+  wrap.innerHTML = "";
+  if (!warnings.length) return;
+  const box = document.createElement("div");
+  box.className = "warnbox";
+  box.innerHTML = "<b>Heads up:</b><br>" + warnings.map(w => "• " + w).join("<br>");
+  wrap.appendChild(box);
+}
+
+function renderTable(rows, cols) {
+  const table = document.getElementById("results-table");
+  table.innerHTML = "";
+  const thead = document.createElement("thead");
+  const trh = document.createElement("tr");
+  for (const c of cols) {
+    const th = document.createElement("th");
+    th.textContent = c;
+    trh.appendChild(th);
+  }
+  thead.appendChild(trh);
+  table.appendChild(thead);
+
+  const tbody = document.createElement("tbody");
+  for (const row of rows) {
+    const tr = document.createElement("tr");
+    for (const c of cols) {
+      const td = document.createElement("td");
+      const v = row[c];
+      if (v === null || v === undefined || v === "") { td.textContent = (v === null) ? "⚠" : ""; if (v === null) td.className = "warn"; }
+      else td.textContent = v;
+      tr.appendChild(td);
+    }
+    tbody.appendChild(tr);
+  }
+  table.appendChild(tbody);
+}
+
+document.getElementById("run-btn").addEventListener("click", () => {
+  setStatus("Running…");
+  try {
+    const result = ContrastCore.run({ contrastRows: state.contrast, techRows: state.techs });
+    document.getElementById("results-panel").style.display = "block";
+    document.getElementById("summary-line").textContent =
+      `${result.rows.length} billable exam(s) out of ${result.totalContrastRows} total exam row(s) (${result.withMedsCount} had contrast given).`;
+    renderDownloads(result);
+    renderWarnings(result.warnings);
+    renderTable(result.rows, result.columns);
+    setStatus("Done.", "ok");
+  } catch (err) {
+    console.error(err);
+    setStatus("Error: " + err.message, "error");
+  }
+});
+</script>
+</body>
+</html>
