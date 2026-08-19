@@ -1,0 +1,3 @@
+[submodule "camris-tools"]
+	path = camris-tools
+	url = ../camris-tools
